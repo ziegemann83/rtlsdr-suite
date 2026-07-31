@@ -6,6 +6,9 @@ on:
       - "v*.*.*"
   workflow_dispatch: {}
 
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
@@ -77,4 +80,7 @@ jobs:
           files: |
             artifacts/RTLSDRSuite-windows.exe/RTLSDRSuite-windows.exe
             artifacts/RTLSDRSuite-macos/RTLSDRSuite-macos
-          generate_release_notes: true
+          body: |
+            Standalone builds of RTL-SDR Suite (spectrum/waterfall, FM/AM/SSB receiver, ADS-B tracker).
+            Requires the RTL-SDR (librtlsdr) driver to be installed separately - see README.
+            macOS binary is unsigned; right-click -> Open on first launch to bypass Gatekeeper.
