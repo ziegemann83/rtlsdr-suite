@@ -15,9 +15,22 @@ teilen sich die drei Tabs das Gerät: Es kann immer nur ein Tab gleichzeitig akt
 sein (die App verhindert das automatisch und zeigt einen Hinweis, falls man das
 versucht).
 
+## Fertige Programme (ohne Python-Installation)
+
+Unter [Releases](../../releases) gibt es fertig gebaute, eigenständige
+Programme für Windows (`RTLSDRSuite-windows.exe`) und macOS
+(`RTLSDRSuite-macos`) – kein lokales Python nötig. Es wird trotzdem weiterhin
+der RTL-SDR-Treiber (librtlsdr) benötigt, siehe unten, und unter macOS muss
+die Datei beim ersten Start ggf. über Rechtsklick → "Öffnen" freigegeben
+werden (Gatekeeper, da die Datei nicht signiert ist).
+
+Diese Binaries werden automatisch von GitHub Actions gebaut, sobald ein
+Versions-Tag (`vX.Y.Z`) gepusht wird – siehe
+`.github/workflows/release.yml`.
+
 ## Voraussetzungen
 
-* Python 3.10 oder neuer
+* Python 3.10 oder neuer (nur für den Start aus dem Quellcode nötig)
 * Ein RTL-SDR-USB-Dongle (RTL2832U-Chipsatz) mit installierten Treibern
   (unter Windows z. B. über Zadig den WinUSB-Treiber installieren, siehe
   https://www.rtl-sdr.com/rtl-sdr-quick-start-guide/)
