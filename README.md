@@ -18,11 +18,13 @@ versucht).
 ## Fertige Programme (ohne Python-Installation)
 
 Unter [Releases](../../releases) gibt es fertig gebaute, eigenständige
-Programme für Windows (`RTLSDRSuite-windows.exe`) und macOS
-(`RTLSDRSuite-macos`) – kein lokales Python nötig. Es wird trotzdem weiterhin
-der RTL-SDR-Treiber (librtlsdr) benötigt, siehe unten, und unter macOS muss
-die Datei beim ersten Start ggf. über Rechtsklick → "Öffnen" freigegeben
-werden (Gatekeeper, da die Datei nicht signiert ist).
+Programme für Windows (`RTLSDRSuite-windows.exe`), macOS
+(`RTLSDRSuite-macos`) und Linux (`RTLSDRSuite-linux`) – kein lokales Python
+nötig. Es wird trotzdem weiterhin der RTL-SDR-Treiber (librtlsdr) benötigt,
+siehe unten. Unter macOS muss die Datei beim ersten Start ggf. über
+Rechtsklick → "Öffnen" freigegeben werden (Gatekeeper, da die Datei nicht
+signiert ist). Unter Linux muss die Datei vor dem ersten Start ausführbar
+gemacht werden: `chmod +x RTLSDRSuite-linux`.
 
 Diese Binaries werden automatisch von GitHub Actions gebaut, sobald ein
 Versions-Tag (`vX.Y.Z`) gepusht wird – siehe

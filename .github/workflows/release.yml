@@ -21,6 +21,9 @@ jobs:
           - os: macos-latest
             artifact_name: RTLSDRSuite-macos
             build_name: RTLSDRSuite
+          - os: ubuntu-latest
+            artifact_name: RTLSDRSuite-linux
+            build_name: RTLSDRSuite
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -33,6 +36,13 @@ jobs:
       - name: Install system audio library (macOS)
         if: runner.os == 'macOS'
         run: brew install portaudio
+
+      - name: Install system libraries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y portaudio19-dev libxcb-cursor0 libxcb-xinerama0 \
+            libxkbcommon-x11-0 libgl1 libegl1
 
       - name: Install Python dependencies
         run: |
@@ -58,6 +68,10 @@ jobs:
         if: runner.os == 'macOS'
         run: cp "dist/${{ matrix.build_name }}" "dist/${{ matrix.artifact_name }}"
 
+      - name: Rename artifact (Linux)
+        if: runner.os == 'Linux'
+        run: cp "dist/${{ matrix.build_name }}" "dist/${{ matrix.artifact_name }}"
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -80,7 +94,9 @@ jobs:
           files: |
             artifacts/RTLSDRSuite-windows.exe/RTLSDRSuite-windows.exe
             artifacts/RTLSDRSuite-macos/RTLSDRSuite-macos
+            artifacts/RTLSDRSuite-linux/RTLSDRSuite-linux
           body: |
             Standalone builds of RTL-SDR Suite (spectrum/waterfall, FM/AM/SSB receiver, ADS-B tracker).
             Requires the RTL-SDR (librtlsdr) driver to be installed separately - see README.
             macOS binary is unsigned; right-click -> Open on first launch to bypass Gatekeeper.
+            Linux binary: run `chmod +x RTLSDRSuite-linux` before launching.
