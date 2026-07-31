@@ -123,6 +123,7 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
+          generate_release_notes: true
           files: |
             artifacts/RTLSDRSuite-windows.exe/RTLSDRSuite-windows.exe
             artifacts/RTLSDRSuite-macos/RTLSDRSuite-macos
@@ -132,3 +133,6 @@ jobs:
             Requires the RTL-SDR (librtlsdr) driver to be installed separately - see README.
             macOS binary is unsigned; right-click -> Open on first launch to bypass Gatekeeper.
             Linux binary: run `chmod +x RTLSDRSuite-linux` before launching.
+
+            ---
+            ## What's changed in this release
