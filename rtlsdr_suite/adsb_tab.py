@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from .adsb_decoder import AdsbTracker
+from .proc_utils import NO_WINDOW_KWARGS
 
 
 class RtlAdsbReader(QThread):
@@ -55,7 +56,8 @@ class RtlAdsbReader(QThread):
         cmd = [exe, "-d", str(self.device_index), "-R"]  # -R: raw output, no timestamps
         try:
             self._proc = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1,
+                **NO_WINDOW_KWARGS,
             )
         except Exception as exc:
             self.error.emit(f"Could not start rtl_adsb: {exc}")

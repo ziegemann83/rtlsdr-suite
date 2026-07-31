@@ -85,7 +85,14 @@ class SdrWorker(QThread):
             self._sdr = RtlSdr(device_index=self.device_index)
             self._sdr.sample_rate = self.sample_rate
             self._sdr.center_freq = self.center_freq
-            self._sdr.freq_correction = self.freq_correction_ppm
+            # librtlsdr's rtlsdr_set_freq_correction() rejects a request to
+            # set the PPM correction to the value it already has (returns
+            # -2/LIBUSB_ERROR_INVALID_PARAM). Since the device defaults to 0
+            # ppm, unconditionally writing 0 here fails on stock hardware.
+            # Only push the correction if it actually differs from what the
+            # device is currently using.
+            if self.freq_correction_ppm != self._sdr.freq_correction:
+                self._sdr.freq_correction = self.freq_correction_ppm
             self._sdr.gain = self.gain
         except Exception as exc:
             self.error.emit(f"Could not open RTL-SDR device #{self.device_index}: {exc}")

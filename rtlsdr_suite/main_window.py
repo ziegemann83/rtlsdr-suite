@@ -1,4 +1,4 @@
-"""Main application window: ties the Spectrum, Receiver and ADS-B tabs together."""
+"""Main application window: ties all the tabs together."""
 
 from __future__ import annotations
 
@@ -15,6 +15,10 @@ from .sdr_device import SdrWorker
 from .spectrum_tab import SpectrumTab
 from .receiver_tab import ReceiverTab
 from .adsb_tab import AdsbTab
+from .ism_tab import IsmTab
+from .pocsag_tab import PocsagTab
+from .apt_tab import AptTab
+from .bandscanner_tab import BandScannerTab
 from .settings import get_settings
 
 
@@ -69,9 +73,17 @@ class MainWindow(QMainWindow):
         self.spectrum_tab = SpectrumTab(self.hub)
         self.receiver_tab = ReceiverTab(self.hub)
         self.adsb_tab = AdsbTab(self.hub)
+        self.ism_tab = IsmTab(self.hub)
+        self.pocsag_tab = PocsagTab(self.hub)
+        self.apt_tab = AptTab(self.hub)
+        self.bandscanner_tab = BandScannerTab(self.hub)
         self.tabs.addTab(self.spectrum_tab, "Spectrum / Waterfall")
         self.tabs.addTab(self.receiver_tab, "Receiver (FM/AM/SSB)")
         self.tabs.addTab(self.adsb_tab, "ADS-B Tracker")
+        self.tabs.addTab(self.ism_tab, "433/868 MHz ISM Scanner")
+        self.tabs.addTab(self.pocsag_tab, "POCSAG Pager")
+        self.tabs.addTab(self.apt_tab, "NOAA Weather Satellite")
+        self.tabs.addTab(self.bandscanner_tab, "Band Scanner")
         root.addWidget(self.tabs)
 
         # Clicking on the spectrum plot tunes the receiver to that frequency
@@ -82,7 +94,8 @@ class MainWindow(QMainWindow):
         self.setStatusBar(QStatusBar())
         self.statusBar().showMessage(
             "Only one tab can use the dongle at a time. "
-            "ADS-B tracking requires the 'rtl_adsb' command line tool to be installed."
+            "ADS-B tracking requires 'rtl_adsb', the ISM scanner requires 'rtl_433', "
+            "and the POCSAG tab requires 'rtl_fm' + 'multimon-ng' on your PATH."
         )
 
         self._load_device_setting()
@@ -128,4 +141,8 @@ class MainWindow(QMainWindow):
         self.spectrum_tab.shutdown()
         self.receiver_tab.shutdown()
         self.adsb_tab.shutdown()
+        self.ism_tab.shutdown()
+        self.pocsag_tab.shutdown()
+        self.apt_tab.shutdown()
+        self.bandscanner_tab.shutdown()
         super().closeEvent(event)

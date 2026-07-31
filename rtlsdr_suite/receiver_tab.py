@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import time
 import wave
 
@@ -9,8 +10,9 @@ import numpy as np
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QDoubleSpinBox, QComboBox,
-    QPushButton, QSlider, QMessageBox, QFileDialog, QListWidget,
-    QListWidgetItem, QInputDialog,
+    QPushButton, QSlider, QMessageBox, QFileDialog, QCheckBox, QLineEdit,
+    QSpinBox, QApplication, QSystemTrayIcon, QListWidget, QListWidgetItem,
+    QInputDialog,
 )
 from PySide6.QtCore import Qt
 
@@ -35,6 +37,22 @@ class ReceiverTab(QWidget):
         self._wav_file: wave.Wave_write | None = None
         self._last_power_db = -120.0
         self.presets = ReceiverPresets()
+
+        # -- squelch-triggered auto recording --
+        self._auto_record_dir: str | None = None
+        self._auto_recording = False
+        self._auto_wav_file: wave.Wave_write | None = None
+        self._squelch_open = False
+
+        # -- multi-frequency scan list --
+        self._scan_freqs_mhz: list[float] = []
+        self._scan_index = 0
+        self._scan_last_hop_time = 0.0
+        self._scan_signal_since: float | None = None
+
+        # -- squelch alert --
+        self._last_alert_time = 0.0
+        self._tray_icon: QSystemTrayIcon | None = None
 
         root = QVBoxLayout(self)
         controls = QHBoxLayout()
@@ -92,9 +110,38 @@ class ReceiverTab(QWidget):
         controls2.addWidget(self.record_btn)
         root.addLayout(controls2)
 
+        # -- squelch-triggered auto recording --
+        controls3 = QHBoxLayout()
+        self.auto_record_check = QCheckBox("Auto-record on squelch")
+        self.auto_record_check.toggled.connect(self._on_auto_record_toggled)
+        controls3.addWidget(self.auto_record_check)
+        self.auto_record_label = QLabel("(no folder selected)")
+        controls3.addWidget(self.auto_record_label)
+
+        self.alert_check = QCheckBox("Alert on squelch open")
+        controls3.addWidget(self.alert_check)
+        controls3.addStretch(1)
+        root.addLayout(controls3)
+
+        # -- multi-frequency scan list --
+        controls4 = QHBoxLayout()
+        self.scan_check = QCheckBox("Scan list (MHz, comma separated):")
+        self.scan_check.toggled.connect(self._on_scan_toggled)
+        controls4.addWidget(self.scan_check)
+        self.scan_freqs_edit = QLineEdit()
+        self.scan_freqs_edit.setPlaceholderText("e.g. 145.500, 433.500, 446.006")
+        controls4.addWidget(self.scan_freqs_edit, stretch=2)
+        controls4.addWidget(QLabel("Dwell (s):"))
+        self.scan_dwell_spin = QSpinBox()
+        self.scan_dwell_spin.setRange(1, 60)
+        self.scan_dwell_spin.setValue(3)
+        controls4.addWidget(self.scan_dwell_spin)
+        root.addLayout(controls4)
+
         self.status_label = QLabel("Idle")
         root.addWidget(self.status_label)
 
+        # -- named frequency/mode presets --
         presets_row = QHBoxLayout()
         presets_row.addWidget(QLabel("Presets:"))
         self.preset_list = QListWidget()
@@ -113,6 +160,10 @@ class ReceiverTab(QWidget):
         root.addLayout(presets_row)
 
         root.addStretch(1)
+
+        self._scan_timer = QTimer(self)
+        self._scan_timer.setInterval(250)
+        self._scan_timer.timeout.connect(self._scan_tick)
 
         self._reload_preset_list()
         self._load_settings()
@@ -215,6 +266,9 @@ class ReceiverTab(QWidget):
             self.worker.start()
             self.audio_sink.start()
             self.status_label.setText("Opening device...")
+            if self.scan_check.isChecked():
+                self._scan_last_hop_time = time.time()
+                self._scan_timer.start()
         else:
             self.start_btn.setText("Start")
             self._stop_all()
@@ -222,6 +276,7 @@ class ReceiverTab(QWidget):
             self.hub.release(self.OWNER)
 
     def _stop_all(self):
+        self._scan_timer.stop()
         if self.worker is not None:
             self.worker.stop()
             self.worker.wait(2000)
@@ -229,6 +284,8 @@ class ReceiverTab(QWidget):
         self.audio_sink.stop()
         if self._recording:
             self.record_btn.setChecked(False)
+        self._close_auto_wav()
+        self._squelch_open = False
 
     def _on_error(self, msg):
         self.status_label.setText(f"Error: {msg}")
@@ -238,6 +295,99 @@ class ReceiverTab(QWidget):
         self.start_btn.blockSignals(False)
         self._stop_all()
         self.hub.release(self.OWNER)
+
+    def _on_auto_record_toggled(self, checked):
+        if checked:
+            folder = QFileDialog.getExistingDirectory(self, "Folder for auto-recorded clips")
+            if not folder:
+                self.auto_record_check.blockSignals(True)
+                self.auto_record_check.setChecked(False)
+                self.auto_record_check.blockSignals(False)
+                return
+            self._auto_record_dir = folder
+            self.auto_record_label.setText(folder)
+            self.record_btn.setEnabled(False)
+        else:
+            self._close_auto_wav()
+            self.auto_record_label.setText("(no folder selected)")
+            self.record_btn.setEnabled(True)
+
+    def _open_auto_wav(self):
+        if not self._auto_record_dir:
+            return
+        fname = time.strftime("recv_%Y%m%d_%H%M%S.wav")
+        path = os.path.join(self._auto_record_dir, fname)
+        try:
+            self._auto_wav_file = wave.open(path, "wb")
+            self._auto_wav_file.setnchannels(1)
+            self._auto_wav_file.setsampwidth(2)
+            self._auto_wav_file.setframerate(AUDIO_RATE)
+            self._auto_recording = True
+            self.status_label.setText(f"Auto-recording: {fname}")
+        except Exception as exc:
+            self._auto_wav_file = None
+            self._auto_recording = False
+            self.status_label.setText(f"Could not start auto-recording: {exc}")
+
+    def _close_auto_wav(self):
+        self._auto_recording = False
+        if self._auto_wav_file is not None:
+            try:
+                self._auto_wav_file.close()
+            except Exception:
+                pass
+            self._auto_wav_file = None
+
+    def _on_scan_toggled(self, checked):
+        if checked:
+            try:
+                freqs = [
+                    float(f.strip()) for f in self.scan_freqs_edit.text().split(",") if f.strip()
+                ]
+            except ValueError:
+                QMessageBox.warning(self, "Invalid scan list",
+                                     "Please enter comma-separated MHz values, e.g. 145.500, 433.500")
+                self.scan_check.blockSignals(True)
+                self.scan_check.setChecked(False)
+                self.scan_check.blockSignals(False)
+                return
+            if not freqs:
+                QMessageBox.warning(self, "Empty scan list", "Enter at least one frequency to scan.")
+                self.scan_check.blockSignals(True)
+                self.scan_check.setChecked(False)
+                self.scan_check.blockSignals(False)
+                return
+            self._scan_freqs_mhz = freqs
+            self._scan_index = 0
+            self._scan_last_hop_time = time.time()
+            self._scan_signal_since = None
+            self.scan_freqs_edit.setEnabled(False)
+            if self.worker is not None:
+                self._scan_timer.start()
+        else:
+            self._scan_timer.stop()
+            self.scan_freqs_edit.setEnabled(True)
+
+    def _scan_tick(self):
+        if self.worker is None or not self._scan_freqs_mhz:
+            return
+        now = time.time()
+        squelch_db = self.squelch_slider.value()
+        if self._last_power_db >= squelch_db:
+            # signal present: stay parked on this frequency
+            self._scan_signal_since = self._scan_signal_since or now
+            self._scan_last_hop_time = now
+            return
+        self._scan_signal_since = None
+        if now - self._scan_last_hop_time >= self.scan_dwell_spin.value():
+            self._scan_index = (self._scan_index + 1) % len(self._scan_freqs_mhz)
+            next_mhz = self._scan_freqs_mhz[self._scan_index]
+            self.freq_spin.blockSignals(True)
+            self.freq_spin.setValue(next_mhz)
+            self.freq_spin.blockSignals(False)
+            self.worker.set_center_freq(next_mhz * 1e6)
+            self._scan_last_hop_time = now
+            self.status_label.setText(f"Scanning... parked on {next_mhz:.4f} MHz")
 
     def _on_record_toggled(self, checked):
         if checked:
@@ -266,13 +416,55 @@ class ReceiverTab(QWidget):
         power_db = 10.0 * np.log10(float(np.mean(np.abs(iq) ** 2)) + 1e-20)
         self._last_power_db = power_db
         audio = self.demod.process(iq)
-        if power_db < self.squelch_slider.value():
+        squelch_open = power_db >= self.squelch_slider.value()
+        if not squelch_open:
             audio = np.zeros_like(audio)
         self.audio_sink.push(audio)
+
         if self._recording and self._wav_file is not None and len(audio):
             pcm16 = np.clip(audio * 32767.0, -32768, 32767).astype(np.int16)
             self._wav_file.writeframes(pcm16.tobytes())
-        self.status_label.setText(f"Receiving... signal: {power_db:.1f} dB")
+
+        # squelch-triggered auto recording: open a new clip on rising edge,
+        # close it on falling edge, so each transmission becomes its own file
+        if self.auto_record_check.isChecked():
+            if squelch_open and not self._squelch_open:
+                self._open_auto_wav()
+            elif not squelch_open and self._squelch_open:
+                self._close_auto_wav()
+            if self._auto_recording and self._auto_wav_file is not None and len(audio):
+                pcm16 = np.clip(audio * 32767.0, -32768, 32767).astype(np.int16)
+                self._auto_wav_file.writeframes(pcm16.tobytes())
+
+        # squelch alert: beep + desktop notification on the rising edge, rate-limited
+        # so a marginal signal flickering open/closed doesn't spam notifications
+        if self.alert_check.isChecked() and squelch_open and not self._squelch_open:
+            now = time.time()
+            if now - self._last_alert_time > 2.0:
+                self._last_alert_time = now
+                self._fire_alert(power_db)
+
+        self._squelch_open = squelch_open
+
+        if not (self.scan_check.isChecked() and not squelch_open):
+            self.status_label.setText(f"Receiving... signal: {power_db:.1f} dB")
+
+    def _fire_alert(self, power_db: float):
+        QApplication.beep()
+        if QSystemTrayIcon.isSystemTrayAvailable():
+            if self._tray_icon is None:
+                self._tray_icon = QSystemTrayIcon(self)
+                app = QApplication.instance()
+                icon = app.windowIcon() if app is not None else None
+                if icon is not None and not icon.isNull():
+                    self._tray_icon.setIcon(icon)
+                self._tray_icon.show()
+            self._tray_icon.showMessage(
+                "RTL-SDR Suite",
+                f"Signal detected on {self.freq_spin.value():.4f} MHz ({power_db:.1f} dB)",
+                QSystemTrayIcon.Information,
+                4000,
+            )
 
     def shutdown(self):
         if self.start_btn.isChecked():
