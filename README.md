@@ -163,6 +163,15 @@ Speichern" lässt sich die aktuelle Frequenz/Modus-Kombination als benannter
 Preset ablegen; Presets werden per Doppelklick in der Liste geladen und über
 "- Entfernen" wieder gelöscht.
 
+Im WFM-Modus wird zusätzlich automatisch das RDS-Signal (Radio Data System,
+57-kHz-Hilfsträger im UKW-Signal) mitdekodiert: Sendername und ggf. laufender
+RadioText erscheinen unter der Statuszeile, sobald der Empfänger die
+Bit-Synchronisation gefunden hat (kann je nach Signalstärke ein paar Sekunden
+dauern). Die RDS-Dekodierung wurde mit einem synthetischen Testsignal
+verifiziert (siehe `tests/test_rds.py`), aber noch nicht mit einer echten
+Live-Übertragung – auf schwachen oder gestörten Sendern kann die
+Bit-Synchronisation länger dauern oder ganz ausbleiben.
+
 ### ADS-B Tracker
 "Start ADS-B receiver" startet im Hintergrund `rtl_adsb` (muss auf dem PATH
 liegen, siehe oben) und dekodiert die empfangenen Rohnachrichten mit der

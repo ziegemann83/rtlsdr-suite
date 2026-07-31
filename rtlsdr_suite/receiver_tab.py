@@ -20,6 +20,7 @@ from .dsp import make_demodulator
 from .sdr_device import SdrWorker
 from .audio_out import AudioSink
 from .settings import get_settings, ReceiverPresets
+from .rds import RdsDemodulator
 
 AUDIO_RATE = 48000
 
@@ -32,6 +33,8 @@ class ReceiverTab(QWidget):
         self.hub = device_hub
         self.worker: SdrWorker | None = None
         self.demod = None
+        self.rds_demod: RdsDemodulator | None = None
+        self._rds_last_shown = ("", "")
         self.audio_sink = AudioSink(sample_rate=AUDIO_RATE)
         self._recording = False
         self._wav_file: wave.Wave_write | None = None
@@ -141,6 +144,10 @@ class ReceiverTab(QWidget):
         self.status_label = QLabel("Idle")
         root.addWidget(self.status_label)
 
+        self.rds_label = QLabel("")
+        self.rds_label.setStyleSheet("font-weight: bold;")
+        root.addWidget(self.rds_label)
+
         # -- named frequency/mode presets --
         presets_row = QHBoxLayout()
         presets_row.addWidget(QLabel("Presets:"))
@@ -239,6 +246,18 @@ class ReceiverTab(QWidget):
     def _on_mode_changed(self, mode):
         if self.worker is not None:
             self.demod = make_demodulator(mode, self._rate_hz(), AUDIO_RATE)
+            self._update_rds_demod(mode)
+
+    def _update_rds_demod(self, mode: str):
+        # RDS only makes sense on WFM (it rides the FM broadcast composite signal).
+        if mode == "WFM" and self.worker is not None:
+            if self.rds_demod is None:
+                self.rds_demod = RdsDemodulator(self._rate_hz())
+                self._rds_last_shown = ("", "")
+                self.rds_label.setText("RDS: searching...")
+        else:
+            self.rds_demod = None
+            self.rds_label.setText("")
 
     def _on_toggle(self, checked):
         if checked:
@@ -265,6 +284,7 @@ class ReceiverTab(QWidget):
             self.worker.device_opened.connect(lambda: self.status_label.setText("Receiving..."))
             self.worker.start()
             self.audio_sink.start()
+            self._update_rds_demod(self.mode_combo.currentText())
             self.status_label.setText("Opening device...")
             if self.scan_check.isChecked():
                 self._scan_last_hop_time = time.time()
@@ -286,6 +306,8 @@ class ReceiverTab(QWidget):
             self.record_btn.setChecked(False)
         self._close_auto_wav()
         self._squelch_open = False
+        self.rds_demod = None
+        self.rds_label.setText("")
 
     def _on_error(self, msg):
         self.status_label.setText(f"Error: {msg}")
@@ -415,6 +437,22 @@ class ReceiverTab(QWidget):
             return
         power_db = 10.0 * np.log10(float(np.mean(np.abs(iq) ** 2)) + 1e-20)
         self._last_power_db = power_db
+
+        if self.rds_demod is not None:
+            self.rds_demod.process(iq)
+            dec = self.rds_demod.decoder
+            shown = (dec.ps, dec.radiotext)
+            if shown != self._rds_last_shown and (dec.ps or dec.radiotext):
+                self._rds_last_shown = shown
+                parts = []
+                if dec.ps:
+                    parts.append(f"RDS: {dec.ps}")
+                else:
+                    parts.append("RDS: searching...")
+                if dec.radiotext:
+                    parts.append(dec.radiotext)
+                self.rds_label.setText("  |  ".join(parts))
+
         audio = self.demod.process(iq)
         squelch_open = power_db >= self.squelch_slider.value()
         if not squelch_open:
