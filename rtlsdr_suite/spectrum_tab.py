@@ -4,20 +4,24 @@ from __future__ import annotations
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QDoubleSpinBox, QComboBox,
-    QPushButton, QMessageBox,
+    QPushButton, QMessageBox, QSpinBox,
 )
 
 from .dsp import power_spectrum_db
 from .sdr_device import SdrWorker
+from .settings import get_settings
 
 
 class SpectrumTab(QWidget):
     """Live spectrum analyzer / waterfall for the RTL-SDR dongle."""
 
     OWNER = "spectrum"
+
+    #: emitted (freq_mhz) when the user clicks on the spectrum plot to tune there
+    tune_requested = Signal(float)
 
     def __init__(self, device_hub, parent=None):
         super().__init__(parent)
@@ -75,6 +79,23 @@ class SpectrumTab(QWidget):
         self.spectrum_curve = self.spectrum_plot.plot(pen=pg.mkPen("y", width=1))
         root.addWidget(self.spectrum_plot, stretch=2)
 
+        color_row = QHBoxLayout()
+        color_row.addWidget(QLabel("Waterfall min (dB):"))
+        self.level_min_spin = QSpinBox()
+        self.level_min_spin.setRange(-140, 0)
+        self.level_min_spin.setValue(-110)
+        self.level_min_spin.valueChanged.connect(self._on_levels_changed)
+        color_row.addWidget(self.level_min_spin)
+        color_row.addWidget(QLabel("max (dB):"))
+        self.level_max_spin = QSpinBox()
+        self.level_max_spin.setRange(-100, 20)
+        self.level_max_spin.setValue(-20)
+        self.level_max_spin.valueChanged.connect(self._on_levels_changed)
+        color_row.addWidget(self.level_max_spin)
+        color_row.addWidget(QLabel("(Klick ins Spektrum stimmt den Empfänger auf diese Frequenz ab)"))
+        color_row.addStretch(1)
+        root.addLayout(color_row)
+
         self.waterfall_plot = pg.PlotWidget(title="Waterfall")
         self.waterfall_img = pg.ImageItem()
         self.waterfall_plot.addItem(self.waterfall_img)
@@ -84,10 +105,51 @@ class SpectrumTab(QWidget):
         self.waterfall_img.setLookupTable(cmap.getLookupTable())
         root.addWidget(self.waterfall_plot, stretch=3)
 
+        self.spectrum_plot.scene().sigMouseClicked.connect(self._on_plot_clicked)
+
         self._ui_timer = QTimer(self)
         self._ui_timer.setInterval(100)
         self._ui_timer.timeout.connect(self._update_plots)
         self._ui_timer.start()
+
+        self._load_settings()
+
+    def _on_levels_changed(self, _value):
+        pass  # levels are read directly from the spinboxes in _update_plots
+
+    def _on_plot_clicked(self, event):
+        if not self.spectrum_plot.sceneBoundingRect().contains(event.scenePos()):
+            return
+        view_point = self.spectrum_plot.getPlotItem().vb.mapSceneToView(event.scenePos())
+        freq_hz = view_point.x()
+        freq_mhz = freq_hz / 1e6
+        if not (24.0 <= freq_mhz <= 1766.0):
+            return
+        self.freq_spin.setValue(freq_mhz)
+        self.tune_requested.emit(freq_mhz)
+
+    def _load_settings(self):
+        s = get_settings()
+        self.freq_spin.setValue(float(s.value("spectrum/freq_mhz", 100.0)))
+        rate_text = s.value("spectrum/rate", "2.048 MSps")
+        idx = self.rate_combo.findText(rate_text)
+        if idx >= 0:
+            self.rate_combo.setCurrentIndex(idx)
+        fft_text = s.value("spectrum/fft", "2048")
+        idx = self.fft_combo.findText(fft_text)
+        if idx >= 0:
+            self.fft_combo.setCurrentIndex(idx)
+        gain_text = s.value("spectrum/gain", "auto")
+        idx = self.gain_combo.findText(gain_text)
+        if idx >= 0:
+            self.gain_combo.setCurrentIndex(idx)
+
+    def save_settings(self):
+        s = get_settings()
+        s.setValue("spectrum/freq_mhz", self.freq_spin.value())
+        s.setValue("spectrum/rate", self.rate_combo.currentText())
+        s.setValue("spectrum/fft", self.fft_combo.currentText())
+        s.setValue("spectrum/gain", self.gain_combo.currentText())
 
     def _rate_hz(self) -> float:
         return float(self.rate_combo.currentText().split()[0]) * 1e6
@@ -151,6 +213,7 @@ class SpectrumTab(QWidget):
         if self.start_btn.isChecked():
             self.start_btn.setChecked(False)
         self._stop_worker()
+        self.save_settings()
 
     def _update_plots(self):
         if self._pending_iq is None:
@@ -165,4 +228,7 @@ class SpectrumTab(QWidget):
         self._waterfall = np.roll(self._waterfall, -1, axis=0)
         if len(db) == self._waterfall.shape[1]:
             self._waterfall[-1, :] = db
-        self.waterfall_img.setImage(self._waterfall.T, autoLevels=False, levels=(-110, -20))
+        self.waterfall_img.setImage(
+            self._waterfall.T, autoLevels=False,
+            levels=(self.level_min_spin.value(), self.level_max_spin.value()),
+        )

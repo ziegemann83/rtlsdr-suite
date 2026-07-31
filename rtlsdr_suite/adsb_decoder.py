@@ -46,9 +46,11 @@ class AdsbTracker:
     def feed_hex(self, msg: str) -> str | None:
         """Process one raw hex ADS-B/Mode-S message. Returns the ICAO if updated."""
         msg = msg.strip().lower()
-        if not msg or len(msg) not in (14, 28):
+        if not msg:
             return None
         self.total_messages += 1
+        if len(msg) not in (14, 28):
+            return None
 
         try:
             result = self._decoder.decode(msg, timestamp=time.time())

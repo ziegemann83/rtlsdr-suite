@@ -9,13 +9,15 @@ import numpy as np
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QDoubleSpinBox, QComboBox,
-    QPushButton, QSlider, QMessageBox, QFileDialog,
+    QPushButton, QSlider, QMessageBox, QFileDialog, QListWidget,
+    QListWidgetItem, QInputDialog,
 )
 from PySide6.QtCore import Qt
 
 from .dsp import make_demodulator
 from .sdr_device import SdrWorker
 from .audio_out import AudioSink
+from .settings import get_settings, ReceiverPresets
 
 AUDIO_RATE = 48000
 
@@ -32,6 +34,7 @@ class ReceiverTab(QWidget):
         self._recording = False
         self._wav_file: wave.Wave_write | None = None
         self._last_power_db = -120.0
+        self.presets = ReceiverPresets()
 
         root = QVBoxLayout(self)
         controls = QHBoxLayout()
@@ -91,7 +94,89 @@ class ReceiverTab(QWidget):
 
         self.status_label = QLabel("Idle")
         root.addWidget(self.status_label)
+
+        presets_row = QHBoxLayout()
+        presets_row.addWidget(QLabel("Presets:"))
+        self.preset_list = QListWidget()
+        self.preset_list.setMaximumHeight(90)
+        self.preset_list.itemDoubleClicked.connect(self._on_preset_activated)
+        presets_row.addWidget(self.preset_list, stretch=1)
+
+        preset_btns = QVBoxLayout()
+        self.preset_add_btn = QPushButton("+ Speichern")
+        self.preset_add_btn.clicked.connect(self._on_add_preset)
+        preset_btns.addWidget(self.preset_add_btn)
+        self.preset_remove_btn = QPushButton("- Entfernen")
+        self.preset_remove_btn.clicked.connect(self._on_remove_preset)
+        preset_btns.addWidget(self.preset_remove_btn)
+        presets_row.addLayout(preset_btns)
+        root.addLayout(presets_row)
+
         root.addStretch(1)
+
+        self._reload_preset_list()
+        self._load_settings()
+
+    def _reload_preset_list(self):
+        self.preset_list.clear()
+        for p in self.presets.load():
+            freq_mhz = p.get("freq_hz", 0) / 1e6
+            item = QListWidgetItem(f"{p.get('name', '?')} — {freq_mhz:.4f} MHz ({p.get('mode', '?')})")
+            self.preset_list.addItem(item)
+
+    def _on_add_preset(self):
+        name, ok = QInputDialog.getText(self, "Preset speichern", "Name für diese Frequenz:")
+        if not ok or not name.strip():
+            return
+        self.presets.add(name.strip(), self.freq_spin.value() * 1e6, self.mode_combo.currentText())
+        self._reload_preset_list()
+
+    def _on_remove_preset(self):
+        row = self.preset_list.currentRow()
+        if row >= 0:
+            self.presets.remove(row)
+            self._reload_preset_list()
+
+    def _on_preset_activated(self, item: QListWidgetItem):
+        row = self.preset_list.row(item)
+        presets = self.presets.load()
+        if 0 <= row < len(presets):
+            p = presets[row]
+            self.freq_spin.setValue(p.get("freq_hz", 0) / 1e6)
+            idx = self.mode_combo.findText(p.get("mode", "WFM"))
+            if idx >= 0:
+                self.mode_combo.setCurrentIndex(idx)
+
+    def set_frequency_mhz(self, freq_mhz: float):
+        """Called externally (e.g. from the Spectrum tab's click-to-tune)."""
+        self.freq_spin.setValue(freq_mhz)
+
+    def _load_settings(self):
+        s = get_settings()
+        self.freq_spin.setValue(float(s.value("receiver/freq_mhz", 100.0)))
+        mode_text = s.value("receiver/mode", "WFM")
+        idx = self.mode_combo.findText(mode_text)
+        if idx >= 0:
+            self.mode_combo.setCurrentIndex(idx)
+        rate_text = s.value("receiver/rate", "2.048 MSps")
+        idx = self.rate_combo.findText(rate_text)
+        if idx >= 0:
+            self.rate_combo.setCurrentIndex(idx)
+        gain_text = s.value("receiver/gain", "auto")
+        idx = self.gain_combo.findText(gain_text)
+        if idx >= 0:
+            self.gain_combo.setCurrentIndex(idx)
+        self.vol_slider.setValue(int(s.value("receiver/volume", 100)))
+        self.squelch_slider.setValue(int(s.value("receiver/squelch", -120)))
+
+    def save_settings(self):
+        s = get_settings()
+        s.setValue("receiver/freq_mhz", self.freq_spin.value())
+        s.setValue("receiver/mode", self.mode_combo.currentText())
+        s.setValue("receiver/rate", self.rate_combo.currentText())
+        s.setValue("receiver/gain", self.gain_combo.currentText())
+        s.setValue("receiver/volume", self.vol_slider.value())
+        s.setValue("receiver/squelch", self.squelch_slider.value())
 
     def _rate_hz(self) -> float:
         return float(self.rate_combo.currentText().split()[0]) * 1e6
@@ -193,3 +278,4 @@ class ReceiverTab(QWidget):
         if self.start_btn.isChecked():
             self.start_btn.setChecked(False)
         self._stop_all()
+        self.save_settings()

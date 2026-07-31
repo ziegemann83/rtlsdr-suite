@@ -115,7 +115,16 @@ class AMDemodulator:
 
 
 class SSBDemodulator:
-    """Single sideband (USB/LSB) demodulator using the phasing (Hilbert) method."""
+    """Single sideband (USB/LSB) demodulator.
+
+    Extracts one sideband by zeroing out the unwanted half of the spectrum
+    (the negative-frequency half for USB, the positive-frequency half for
+    LSB) and taking the real part of the result. This is a straightforward
+    block-based version of the classic "phasing method" filter - simple to
+    reason about and good enough for voice-grade shortwave reception, though
+    a dedicated SSB receiver with a steeper/continuous filter will sound
+    cleaner right at the block boundaries.
+    """
 
     def __init__(self, sample_rate: float, audio_rate: int = 48000, mode: str = "USB"):
         self.sample_rate = sample_rate
@@ -125,10 +134,16 @@ class SSBDemodulator:
     def process(self, iq: np.ndarray) -> np.ndarray:
         if len(iq) == 0:
             return np.zeros(0, dtype=np.float32)
-        # For USB keep the analytic signal as-is (positive freq = wanted sideband);
-        # for LSB use the conjugate to flip which sideband ends up at baseband.
-        analytic = iq if self.mode.upper() == "USB" else np.conj(iq)
-        audio = np.real(analytic).astype(np.float32)
+        n = len(iq)
+        spectrum = np.fft.fft(iq)
+        freqs = np.fft.fftfreq(n)
+        if self.mode.upper() == "USB":
+            spectrum[freqs < 0] = 0
+        else:  # LSB
+            spectrum[freqs > 0] = 0
+        filtered = np.fft.ifft(spectrum)
+        # x2 to restore amplitude lost by discarding half the spectrum
+        audio = (2.0 * np.real(filtered)).astype(np.float32)
         decim = max(1, int(round(self.sample_rate / self.audio_rate)))
         if decim > 1:
             audio = _cascaded_decimate(audio, decim)

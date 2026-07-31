@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import os
+import sys
+
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QMainWindow, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QComboBox, QPushButton, QStatusBar,
@@ -11,6 +15,7 @@ from .sdr_device import SdrWorker
 from .spectrum_tab import SpectrumTab
 from .receiver_tab import ReceiverTab
 from .adsb_tab import AdsbTab
+from .settings import get_settings
 
 
 class DeviceHub:
@@ -41,6 +46,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("RTL-SDR Suite")
         self.resize(1100, 750)
+        self._set_app_icon()
 
         self.hub = DeviceHub()
 
@@ -68,12 +74,34 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.adsb_tab, "ADS-B Tracker")
         root.addWidget(self.tabs)
 
+        # Clicking on the spectrum plot tunes the receiver to that frequency
+        # and jumps to the Receiver tab for convenience.
+        self.spectrum_tab.tune_requested.connect(self._on_spectrum_tune_requested)
+
         self.setCentralWidget(central)
         self.setStatusBar(QStatusBar())
         self.statusBar().showMessage(
             "Only one tab can use the dongle at a time. "
             "ADS-B tracking requires the 'rtl_adsb' command line tool to be installed."
         )
+
+        self._load_device_setting()
+
+    def _set_app_icon(self):
+        # When frozen by PyInstaller (--onefile), bundled data lives under
+        # sys._MEIPASS instead of next to this source file.
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            base_dir = meipass
+        else:
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        icon_path = os.path.join(base_dir, "assets", "icon.png")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+
+    def _on_spectrum_tune_requested(self, freq_mhz: float):
+        self.receiver_tab.set_frequency_mhz(freq_mhz)
+        self.tabs.setCurrentWidget(self.receiver_tab)
 
     def _refresh_devices(self):
         self.device_combo.blockSignals(True)
@@ -83,10 +111,18 @@ class MainWindow(QMainWindow):
             names = ["[0] (device list unavailable - device 0 will be used)"]
         self.device_combo.addItems(names)
         self.device_combo.blockSignals(False)
-        self.hub.device_index = 0
+
+    def _load_device_setting(self):
+        s = get_settings()
+        saved_index = int(s.value("main/device_index", 0))
+        if 0 <= saved_index < self.device_combo.count():
+            self.device_combo.setCurrentIndex(saved_index)
+        else:
+            self.hub.device_index = 0
 
     def _on_device_changed(self, index: int):
         self.hub.device_index = max(0, index)
+        get_settings().setValue("main/device_index", self.hub.device_index)
 
     def closeEvent(self, event):
         self.spectrum_tab.shutdown()

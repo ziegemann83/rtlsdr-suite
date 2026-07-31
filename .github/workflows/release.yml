@@ -50,18 +50,45 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
+      - name: Build macOS .icns from PNG
+        if: runner.os == 'macOS'
+        run: |
+          mkdir icon.iconset
+          sips -z 16 16     assets/icon.png --out icon.iconset/icon_16x16.png
+          sips -z 32 32     assets/icon.png --out icon.iconset/icon_16x16@2x.png
+          sips -z 32 32     assets/icon.png --out icon.iconset/icon_32x32.png
+          sips -z 64 64     assets/icon.png --out icon.iconset/icon_32x32@2x.png
+          sips -z 128 128   assets/icon.png --out icon.iconset/icon_128x128.png
+          sips -z 256 256   assets/icon.png --out icon.iconset/icon_128x128@2x.png
+          sips -z 256 256   assets/icon.png --out icon.iconset/icon_256x256.png
+          sips -z 512 512   assets/icon.png --out icon.iconset/icon_256x256@2x.png
+          sips -z 512 512   assets/icon.png --out icon.iconset/icon_512x512.png
+          iconutil -c icns icon.iconset -o assets/icon.icns
+
       - name: Build with PyInstaller
         shell: bash
         run: |
           if [ "$RUNNER_OS" = "Linux" ]; then
             export QT_QPA_PLATFORM=offscreen
+            ICON_FLAG=""  # PyInstaller does not support embedding icons in Linux ELF binaries
+            ADD_DATA="assets:assets"
+          elif [ "$RUNNER_OS" = "Windows" ]; then
+            ICON_FLAG="--icon=assets/icon.ico"
+            ADD_DATA="assets;assets"
+          else
+            ICON_FLAG="--icon=assets/icon.icns"
+            ADD_DATA="assets:assets"
           fi
           pyinstaller --onefile --windowed --name ${{ matrix.build_name }} \
+            $ICON_FLAG \
+            --add-data "$ADD_DATA" \
             --collect-all sounddevice \
             --collect-all pyModeS \
             --collect-all rtlsdr \
             --collect-submodules pyqtgraph \
             --exclude-module pyqtgraph.examples \
+            --exclude-module tkinter \
+            --exclude-module matplotlib \
             main.py
 
       - name: Rename artifact (Windows)
