@@ -51,13 +51,18 @@ jobs:
           pip install pyinstaller
 
       - name: Build with PyInstaller
-        run: >
-          pyinstaller --onefile --windowed --name ${{ matrix.build_name }}
-          --collect-all sounddevice
-          --collect-all pyModeS
-          --collect-all rtlsdr
-          --collect-all pyqtgraph
-          main.py
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            export QT_QPA_PLATFORM=offscreen
+          fi
+          pyinstaller --onefile --windowed --name ${{ matrix.build_name }} \
+            --collect-all sounddevice \
+            --collect-all pyModeS \
+            --collect-all rtlsdr \
+            --collect-submodules pyqtgraph \
+            --exclude-module pyqtgraph.examples \
+            main.py
 
       - name: Rename artifact (Windows)
         if: runner.os == 'Windows'
